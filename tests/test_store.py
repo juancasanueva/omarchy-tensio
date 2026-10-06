@@ -9,14 +9,14 @@ import csv
 import importlib.util
 import io
 import json
+import errno
 import os
-import re
 import shutil
 import stat
 import subprocess
-import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIN = os.path.join(ROOT, "bin")
@@ -239,6 +239,20 @@ class LoadAndSave(StoreTestCase):
             result = self.run_store(*args)
             self.assertEqual(result.returncode, 2, (args, result.stderr))
 
+    def test_save_rejects_lone_surrogates_without_crashing(self):
+        for field in ("name", "note"):
+            state = sample_state()
+            if field == "name":
+                state["profiles"][0]["name"] = "Ana \ud800"
+            else:
+                state["readings"][0]["note"] = "after \udfff coffee"
+            payload = json.dumps(state).encode("utf-8")
+            self.assertIn(b"\\ud", payload)
+            result = self.run_store("save", stdin=payload)
+            self.assertEqual(result.returncode, 3, (field, result.stderr))
+            self.assertNotIn(b"Traceback", result.stderr)
+            self.assertFalse(os.path.exists(self.state_path()))
+
 
 class ExportCsv(StoreTestCase):
     def export(self, *args, env=None):
@@ -252,7 +266,7 @@ class ExportCsv(StoreTestCase):
         self.assertEqual(out["rows"], 2)
         self.assertEqual(os.path.dirname(out["path"]), os.path.join(self.docs, "Tensio"))
         self.assertRegex(os.path.basename(out["path"]), r"^Tensio-Ana-Mar-a-\d{8}-\d{4}\.csv$")
-        self.assertEqual(stat.S_IMODE(os.stat(out["path"]).st_mode), 0o644)
+        self.assertEqual(stat.S_IMODE(os.stat(out["path"]).st_mode), 0o600)
 
         rows = list(csv.reader(io.StringIO(read_file(out["path"]).decode("utf-8"))))
         self.assertEqual(rows[0], ["Date", "Time", "Systolic (mmHg)", "Diastolic (mmHg)", "Pulse (bpm)",
@@ -374,9 +388,6 @@ class PureHelpers(unittest.TestCase):
         self.assertIsNone(store.range_start("all", now))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class ExportPdf(StoreTestCase):
     @classmethod
@@ -410,3 +421,61 @@ class ExportPdf(StoreTestCase):
             else:
                 self.assertIn(b"(All readings) Tj", data)
                 self.assertIn(b"(No readings in this range) Tj", data)
+
+
+class ExportInProcess(StoreTestCase):
+    """Calls cmd_export directly so the helper's own umask does not mask the modes it asks for."""
+
+    def setUp(self):
+        super().setUp()
+        self.store = load_bin_module("tensio_store")
+        self.save(sample_state())
+        patcher = mock.patch.dict(os.environ, self.env, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        old_umask = os.umask(0o022)
+        self.addCleanup(os.umask, old_umask)
+
+    def test_export_creates_a_private_folder_and_file(self):
+        out = self.store.cmd_export("csv", PROFILE, "all")
+        folder = os.path.join(self.docs, "Tensio")
+        self.assertEqual(stat.S_IMODE(os.stat(folder).st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE(os.stat(out["path"]).st_mode), 0o600)
+
+    def test_export_leaves_a_pre_existing_folder_mode_alone(self):
+        folder = os.path.join(self.docs, "Tensio")
+        os.mkdir(folder)
+        os.chmod(folder, 0o755)
+        self.store.cmd_export("csv", PROFILE, "all")
+        self.assertEqual(stat.S_IMODE(os.stat(folder).st_mode), 0o755)
+
+    def test_failed_write_removes_the_partial_export(self):
+        def no_space(fd, data):
+            os.write(fd, data[:10])
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+        with mock.patch.object(self.store, "write_all", no_space):
+            with self.assertRaises(OSError):
+                self.store.cmd_export("csv", PROFILE, "all")
+        folder = os.path.join(self.docs, "Tensio")
+        self.assertEqual([name for name in os.listdir(folder) if name.startswith("Tensio-")], [])
+
+    def test_failed_fsync_removes_the_partial_export(self):
+        real_fsync = os.fsync
+        calls = []
+
+        def failing_fsync(fd):
+            calls.append(fd)
+            if len(calls) == 1:
+                raise OSError(errno.EIO, os.strerror(errno.EIO))
+            return real_fsync(fd)
+
+        with mock.patch.object(self.store.os, "fsync", failing_fsync):
+            with self.assertRaises(OSError):
+                self.store.cmd_export("csv", PROFILE, "all")
+        folder = os.path.join(self.docs, "Tensio")
+        self.assertEqual([name for name in os.listdir(folder) if name.startswith("Tensio-")], [])
+
+
+if __name__ == "__main__":
+    unittest.main()

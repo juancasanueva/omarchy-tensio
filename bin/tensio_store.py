@@ -8,7 +8,8 @@ The QML panel invokes this file as an argv array, never through a shell:
     /usr/bin/python3 -I -S tensio_store.py export csv|pdf --profile <id> --range 7d|30d|all
 
 Storage: $XDG_STATE_HOME/tensio/state.json (default ~/.local/state/tensio),
-directory 0700, file 0600, at most 4 MiB. Exports: $XDG_DOCUMENTS_DIR/Tensio/.
+directory 0700, file 0600, at most 4 MiB. Exports: $XDG_DOCUMENTS_DIR/Tensio/ (a new folder is
+created 0700; export files are created 0600).
 
 Every file access is descriptor-bound. Directories are walked one component
 at a time with O_NOFOLLOW and the descriptors are held; the state file is
@@ -75,6 +76,7 @@ PROFILE_ID_RE = re.compile(r"^p_[0-9a-f]{12}$")
 READING_ID_RE = re.compile(r"^r_[0-9a-f]{12}$")
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 CONTROL_RE = re.compile("[\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]")
+SURROGATE_RE = re.compile("[\ud800-\udfff]")
 CSV_FORMULA_RE = re.compile(r"^[=+\-@\t\r]")
 SLUG_RUN_RE = re.compile(r"[A-Za-z0-9]+")
 USER_DIRS_RE = re.compile(r'^\s*XDG_DOCUMENTS_DIR\s*=\s*"?([^"\n]*?)"?\s*$')
@@ -166,6 +168,13 @@ def utf16_length(text):
     return len(text.encode("utf-16-le")) // 2
 
 
+def is_clean_text(text, limit):
+    """A string with no lone surrogates, no control or bidi characters, at most `limit` UTF-16 units."""
+    if not isinstance(text, str) or SURROGATE_RE.search(text) or CONTROL_RE.search(text):
+        return False
+    return utf16_length(text) <= limit
+
+
 def empty_state():
     return {"version": SCHEMA_VERSION, "activeProfile": None, "profiles": [], "readings": []}
 
@@ -188,8 +197,7 @@ def clean_profile(item, seen, index):
     if pid in seen:
         return None, where + " repeats id " + pid
     name = item.get("name")
-    if (not isinstance(name, str) or not name.strip() or utf16_length(name) > LIMITS["name_max"]
-            or CONTROL_RE.search(name)):
+    if not is_clean_text(name, LIMITS["name_max"]) or not name.strip():
         return None, where + " has an invalid name"
     color = item.get("color")
     if not isinstance(color, str) or not COLOR_RE.match(color):
@@ -227,7 +235,7 @@ def clean_reading(item, profile_ids, seen, index):
     if feeling not in FEELINGS or body not in BODIES or arm not in ARMS:
         return None, where + " has an unknown option value"
     note = item.get("note", "")
-    if not isinstance(note, str) or utf16_length(note) > LIMITS["note_max"] or CONTROL_RE.search(note):
+    if not is_clean_text(note, LIMITS["note_max"]):
         return None, where + " has an invalid note"
     seen.add(rid)
     return {"id": rid, "profileId": pid, "at": at, "sys": sys_, "dia": dia, "pulse": pulse,
@@ -407,19 +415,28 @@ def write_atomic(dirfd, name, data):
 
 
 def create_export(dirfd, base, extension, data):
-    """Create base[-N].extension exclusively (0644) and return the name used."""
+    """Create base[-N].extension exclusively (0600) and return the name used.
+
+    Exports hold health data, so they are private to the user. A failed write
+    or fsync unlinks the just-created file through the held directory descriptor.
+    """
     for attempt in range(1, MAX_EXPORT_ATTEMPTS + 1):
         name = "%s%s%s" % (base, "" if attempt == 1 else "-%d" % attempt, extension)
         try:
-            fd = os.open(name, FILE_CREATE_FLAGS, 0o644, dir_fd=dirfd)
+            fd = os.open(name, FILE_CREATE_FLAGS, 0o600, dir_fd=dirfd)
         except FileExistsError:
             continue
         except OSError as exc:
             raise refuse(name, exc) from None
         try:
-            os.fchmod(fd, 0o644)
             write_all(fd, data)
             os.fsync(fd)
+        except BaseException:
+            try:
+                os.unlink(name, dir_fd=dirfd)
+            except OSError:
+                pass
+            raise
         finally:
             os.close(fd)
         os.fsync(dirfd)
@@ -601,7 +618,7 @@ def cmd_export(fmt, profile_id, range_key):
     base = "Tensio-%s-%s" % (profile_slug(profile["name"]), now.strftime("%Y%m%d-%H%M"))
     documents = documents_dir()
     try:
-        dirfd = open_dir_chain(documents, [EXPORT_FOLDER], create=True, mode=0o755, private=False)
+        dirfd = open_dir_chain(documents, [EXPORT_FOLDER], create=True, mode=0o700, private=False)
     except FileNotFoundError:
         raise StoreError(EXIT_IO, "documents directory %s does not exist" % documents) from None
     try:
