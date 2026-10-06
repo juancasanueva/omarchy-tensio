@@ -250,4 +250,62 @@ test('initialColor cycles through a fixed palette starting with purple', () => {
   assert.equal(M.profileInitial('   '), '?')
 })
 
+test('lastReading returns the most recent reading of one profile', () => {
+  const rs = [
+    reading('2026-10-05T07:00', 120, 80, 70),
+    reading('2026-10-06T08:00', 129, 83, 72),
+    reading('2026-10-06T09:00', 150, 95, 80, { profileId: OTHER }),
+    reading('2026-10-04T23:00', 110, 70, 60)
+  ]
+  assert.equal(M.lastReading(rs, PROFILE).sys, 129)
+  assert.equal(M.lastReading(rs, OTHER).sys, 150)
+  assert.equal(M.lastReading(rs, 'p_000000000000'), null)
+  assert.equal(M.lastReading([], PROFILE), null)
+  assert.equal(M.lastReading(null, PROFILE), null)
+})
+
+test('downsample keeps at most max points including first and last', () => {
+  const pts = []
+  for (let i = 0; i < 1000; i++) pts.push({ t: i })
+  const out = M.downsample(pts, 400)
+  assert.ok(out.length <= 400, String(out.length))
+  assert.ok(out.length >= 399, String(out.length))
+  assert.equal(out[0].t, 0)
+  assert.equal(out[out.length - 1].t, 999)
+  for (let i = 1; i < out.length; i++) assert.ok(out[i].t > out[i - 1].t)
+  assert.equal(M.downsample(pts.slice(0, 10), 400).length, 10)
+  assert.deepEqual(M.downsample([], 400), [])
+  assert.equal(M.downsample(pts, 1).length, 1)
+})
+
+test('splitAt and joinAt round-trip date and time fields', () => {
+  assert.deepEqual(M.splitAt('2026-10-06T09:05'), { date: '2026-10-06', time: '09:05' })
+  assert.deepEqual(M.splitAt('garbage'), { date: '', time: '' })
+  assert.equal(M.joinAt('2026-10-06', '09:05'), '2026-10-06T09:05')
+  assert.equal(M.joinAt(' 2026-10-06 ', '9:05'), '2026-10-06T09:05')
+  assert.equal(M.joinAt('2026-02-30', '09:05'), null)
+  assert.equal(M.joinAt('2026-10-06', '24:00'), null)
+  assert.equal(M.joinAt('2026-10-6', '09:05'), null)
+  assert.equal(M.joinAt(null, '09:05'), null)
+})
+
+test('isExportPath accepts only helper-shaped absolute export paths', () => {
+  assert.ok(M.isExportPath('/home/u/Documents/Tensio/Tensio-Ana-20261006-0900.pdf'))
+  assert.ok(M.isExportPath('/home/u/Documents/Tensio/Tensio-Ana-20261006-0900-2.csv'))
+  assert.ok(!M.isExportPath('relative/Tensio/Tensio-a.pdf'))
+  assert.ok(!M.isExportPath('/home/u/Documents/Tensio/Tensio-a.sh'))
+  assert.ok(!M.isExportPath('/home/u/Documents/Other/report.pdf'))
+  assert.ok(!M.isExportPath('/home/u/Documents/Tensio/Tensio-a\n.pdf'))
+  assert.ok(!M.isExportPath('/home/u/../etc/Tensio/Tensio-a.pdf'))
+  assert.ok(!M.isExportPath(42))
+  assert.ok(!M.isExportPath('/' + 'a'.repeat(5000) + '/Tensio/Tensio-a.pdf'))
+  assert.equal(M.exportFolder('/home/u/Documents/Tensio/Tensio-Ana-1.pdf'), '/home/u/Documents/Tensio')
+  assert.equal(M.exportFolder('/etc/passwd'), '')
+})
+
+test('readingLine formats a compact reading summary', () => {
+  assert.equal(M.readingLine({ sys: 129, dia: 83 }), '129/83')
+  assert.equal(M.readingLine(null), '')
+})
+
 console.log('ok ' + passed + ' test groups')

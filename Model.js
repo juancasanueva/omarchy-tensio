@@ -486,6 +486,91 @@ function profileInitial(name) {
     return s.length ? s.charAt(0).toUpperCase() : '?'
 }
 
+// ---------------------------------------------------------------- UI helpers
+
+// Most recent reading of one profile, or null.
+function lastReading(readings, profileId) {
+    var best = null
+    var bestMs = -Infinity
+    for (var i = 0; i < (readings || []).length; i++) {
+        var r = readings[i]
+        if (!r || r.profileId !== profileId) continue
+        var t = parseAt(r.at)
+        if (!t) continue
+        if (t.getTime() >= bestMs) {
+            best = r
+            bestMs = t.getTime()
+        }
+    }
+    return best
+}
+
+// "129/83", or '' when there is no reading.
+function readingLine(r) {
+    return r ? r.sys + '/' + r.dia : ''
+}
+
+// Evenly spaced subset of at most `max` items, keeping the first and last so
+// a chart always spans the full range. Bounds the work a Canvas repaint does.
+function downsample(items, max) {
+    var list = items || []
+    var n = list.length
+    var cap = Math.max(1, Math.floor(Number(max) || 1))
+    if (n <= cap) return list.slice()
+    if (cap === 1) return [list[n - 1]]
+    var out = []
+    var step = (n - 1) / (cap - 1)
+    var last = -1
+    for (var i = 0; i < cap; i++) {
+        var idx = Math.round(i * step)
+        if (idx > last) {
+            out.push(list[idx])
+            last = idx
+        }
+    }
+    return out
+}
+
+// Splits a stored timestamp into the form's date and time fields.
+function splitAt(at) {
+    if (!parseAt(at)) return { date: '', time: '' }
+    return { date: at.slice(0, 10), time: at.slice(11, 16) }
+}
+
+// Joins form fields (YYYY-MM-DD, H:MM or HH:MM) into a timestamp, or null.
+function joinAt(date, time) {
+    if (typeof date !== 'string' || typeof time !== 'string') return null
+    var d = date.trim()
+    var t = time.trim()
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null
+    var m = /^(\d{1,2}):(\d{2})$/.exec(t)
+    if (!m) return null
+    var at = d + 'T' + pad2(Number(m[1])) + ':' + m[2]
+    return parseAt(at) ? at : null
+}
+
+var EXPORT_PATH_MAX = 4096
+var EXPORT_PATH_RE = /^\/[^\u0000-\u001f\u007f]*\/Tensio\/Tensio-[^\/\u0000-\u001f\u007f]*\.(pdf|csv)$/
+
+// True only for an absolute path shaped like the helper's export output:
+// <documents>/Tensio/Tensio-<slug>-<stamp>[-n].pdf|csv, no controls, no
+// relative segments. Guards the path before it reaches xdg-open.
+function isExportPath(path) {
+    if (typeof path !== 'string' || path.length > EXPORT_PATH_MAX) return false
+    if (!EXPORT_PATH_RE.test(path)) return false
+    var parts = path.split('/')
+    for (var i = 1; i < parts.length; i++) {
+        if (parts[i] === '' || parts[i] === '.' || parts[i] === '..') return false
+    }
+    return true
+}
+
+// Directory holding a validated export, or '' when the path is not one.
+function exportFolder(path) {
+    if (!isExportPath(path)) return ''
+    return path.slice(0, path.lastIndexOf('/'))
+}
+
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         SCHEMA_VERSION: SCHEMA_VERSION, LIMITS: LIMITS, FEELINGS: FEELINGS, BODIES: BODIES, ARMS: ARMS, RANGES: RANGES,
@@ -497,6 +582,8 @@ if (typeof module !== 'undefined' && module.exports) {
         newId: newId, validateReading: validateReading, validateProfileName: validateProfileName,
         emptyState: emptyState, validateState: validateState,
         plain: plain, csvRows: csvRows, chartSeries: chartSeries, thinLabels: thinLabels,
-        initialColor: initialColor, profileInitial: profileInitial
+        initialColor: initialColor, profileInitial: profileInitial,
+        lastReading: lastReading, readingLine: readingLine, downsample: downsample,
+        splitAt: splitAt, joinAt: joinAt, isExportPath: isExportPath, exportFolder: exportFolder
     }
 }
