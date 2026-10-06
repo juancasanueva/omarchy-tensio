@@ -78,7 +78,7 @@ Panel {
     property string exportPath: ''
     property string exportError: ''
 
-    readonly property var tabs: ['Records', 'Analysis', 'Report']
+    readonly property var tabs: ['[1] Records', '[2] Analysis', '[3] Reports']
     // Re-evaluated whenever the panel opens so "7 days" follows the clock.
     property real rangeClock: Date.now()
     readonly property var rangeReadings: Model.filterReadings(store.readings, activeId, rangeKey, new Date(rangeClock))

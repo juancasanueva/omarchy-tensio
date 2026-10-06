@@ -483,7 +483,7 @@ test('shortcutHelp lists grouped rows that the README documents verbatim', () =>
     assert.ok(!/[<>&]/.test(row.group + row.keys + row.action))
     if (groups.indexOf(row.group) < 0) groups.push(row.group)
   }
-  assert.deepEqual(groups, ['Global', 'Records', 'Analysis, info and help', 'Report', 'Profile menu', 'Reading form', 'Dialogs'])
+  assert.deepEqual(groups, ['Global', 'Records', 'Analysis, info and help', 'Reports', 'Profile menu', 'Reading form', 'Dialogs'])
   // Rows of one group are contiguous so the overlay can render them in order.
   let last = ''
   const seen = []

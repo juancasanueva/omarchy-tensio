@@ -31,7 +31,7 @@ A blood-pressure log in your Omarchy bar. Tensio is a desktop port of the Tensio
 | Records | Readings grouped by day, newest first (the 200 most recent are listed; CSV export holds the full log). Add, edit and delete readings. |
 | Reading fields | Systolic, diastolic, pulse, date, time, feeling, body position, arm, note (up to 200 characters). |
 | Analysis | SYS / DIA / PULSE line chart, averages card with category badge, and category distribution, over 7 days, 30 days or all readings. |
-| Report | Summary for the chosen range and export to PDF or CSV, with **Open** and **Open folder** buttons. |
+| Reports | Summary for the chosen range and export to PDF or CSV, with **Open** and **Open folder** buttons. |
 | Info | Category table, emergency warning and medical disclaimer (the **i** button in the header). |
 
 Accepted values: systolic 50–250, diastolic 30–150, pulse 30–220. Up to 20,000 readings in total.
@@ -59,13 +59,13 @@ Everything in the panel works without the mouse. Press `?` in the panel for the 
 
 | Keys | Action |
 |------|--------|
-| `1` `2` `3` or `Left` / `Right` | Switch between Records, Analysis and Report |
+| `1` `2` `3` or `Left` / `Right` | Switch between Records, Analysis and Reports |
 | `n` or `+` | New reading |
 | `p` | Open the profile menu |
 | `[` / `]` | Previous / next profile |
 | `i` | Category information |
 | `?` | Show or hide this shortcut list |
-| `w` / `m` / `a` | Range 7 days / 30 days / all (Analysis and Report) |
+| `w` / `m` / `a` | Range 7 days / 30 days / all (Analysis and Reports) |
 | `Esc` | Close the topmost layer, otherwise the panel |
 
 ### Records
@@ -85,7 +85,7 @@ Everything in the panel works without the mouse. Press `?` in the panel for the 
 | `j` / `k` or `Down` / `Up` | Scroll |
 | `PageUp` / `PageDown` | Scroll by a page |
 
-### Report
+### Reports
 
 | Keys | Action |
 |------|--------|
