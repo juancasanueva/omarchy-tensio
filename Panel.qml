@@ -986,7 +986,7 @@ Panel {
                         PlainLabel {
                             id: hintLabel
                             anchors.centerIn: parent
-                            text: '? Shortcuts'
+                            text: '[?] Shortcuts'
                             color: hintArea.containsMouse ? Color.accent : body.muted
                             font.pixelSize: Style.font.caption
                         }
