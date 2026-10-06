@@ -376,3 +376,37 @@ class PureHelpers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExportPdf(StoreTestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf = load_bin_module("tensio_pdf")
+
+    def state_with_readings(self, count):
+        state = sample_state()
+        state["readings"] = [
+            reading("r_%012x" % index, "2025-%02d-%02dT%02d:30" % (1 + index // 28 % 12, 1 + index % 28, 6 + index % 12),
+                    100 + (index * 7) % 90, 60 + (index * 5) % 50, 55 + index % 40)
+            for index in range(count)
+        ]
+        return state
+
+    def test_export_pdf_for_0_5_and_60_readings(self):
+        from test_pdf import count_pages, expected_pages, verify_xref
+        for count in (0, 5, 60):
+            self.save(self.state_with_readings(count))
+            result = self.run_store("export", "pdf", "--profile", PROFILE, "--range", "all")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            out = json.loads(result.stdout)
+            self.assertEqual(out["rows"], count)
+            self.assertRegex(os.path.basename(out["path"]), r"^Tensio-Ana-Mar-a-\d{8}-\d{4}(-\d+)?\.pdf$")
+            data = read_file(out["path"])
+            self.assertEqual(count_pages(data), expected_pages(self.pdf, count), "readings=%d" % count)
+            verify_xref(self, data)
+            self.assertIn(b"(Ana Mar\xeda) Tj", data)
+            if count:
+                self.assertIn(b"(From Jan 1, 2025 to ", data)
+            else:
+                self.assertIn(b"(All readings) Tj", data)
+                self.assertIn(b"(No readings in this range) Tj", data)

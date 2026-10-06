@@ -550,6 +550,43 @@ def csv_bytes(readings):
     return buffer.getvalue().encode("utf-8")
 
 
+def load_pdf_module():
+    """Import the sibling PDF writer by path; -I keeps the script directory off sys.path."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tensio_pdf.py")
+    spec = importlib.util.spec_from_file_location("tensio_pdf", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def report_rows(readings):
+    rows = []
+    for item in readings:
+        moment = parse_at(item["at"])
+        rows.append({
+            "when": moment, "date": format_date(moment), "time": format_time(moment),
+            "sys": item["sys"], "dia": item["dia"], "pulse": item["pulse"],
+            "feeling": item["feeling"], "body": item["body"], "arm": item["arm"],
+            "color": CATEGORY_BY_KEY[category_of(item["sys"], item["dia"])][1],
+        })
+    return rows
+
+
+def report_distribution(readings):
+    counts = {key: 0 for key, _label, _color in CATEGORIES}
+    for item in readings:
+        counts[category_of(item["sys"], item["dia"])] += 1
+    total = len(readings)
+    return [{"label": label, "color": color, "pct": round(counts[key] * 100 / total) if total else 0}
+            for key, label, color in CATEGORIES]
+
+
+def pdf_bytes(profile, range_key, readings, now):
+    pdf = load_pdf_module()
+    return pdf.build_report(profile["name"], profile["color"], RANGE_LABELS[range_key],
+                            report_rows(readings), report_distribution(readings), now)
+
+
 def cmd_export(fmt, profile_id, range_key):
     state = load_state()
     profile = next((item for item in state["profiles"] if item["id"] == profile_id), None)
@@ -560,7 +597,7 @@ def cmd_export(fmt, profile_id, range_key):
     if fmt == "csv":
         data, extension = csv_bytes(readings), ".csv"
     else:
-        raise StoreError(EXIT_USAGE, "unsupported export format %s" % fmt)
+        data, extension = pdf_bytes(profile, range_key, readings, now), ".pdf"
     base = "Tensio-%s-%s" % (profile_slug(profile["name"]), now.strftime("%Y%m%d-%H%M"))
     documents = documents_dir()
     try:
@@ -576,8 +613,8 @@ def cmd_export(fmt, profile_id, range_key):
 
 # ------------------------------------------------------------------- main
 
-USAGE = "usage: tensio_store.py load | save | export csv --profile <id> --range 7d|30d|all"
-EXPORT_FORMATS = ("csv",)
+USAGE = "usage: tensio_store.py load | save | export csv|pdf --profile <id> --range 7d|30d|all"
+EXPORT_FORMATS = ("csv", "pdf")
 
 
 def parse_args(argv):
