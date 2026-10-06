@@ -53,16 +53,86 @@ Categories follow the AHA table, plus a Low band below 90/60.
 
 ## Keyboard and IPC
 
-| Key | Action |
-|-----|--------|
-| Left / Right | Previous / next page (Records, Analysis, Report) |
-| Enter (in a text field) | Save the reading form or the profile name being edited |
-| Esc | Close the open menu, form, info view or name editor; otherwise close the panel |
+Everything in the panel works without the mouse. Press `?` in the panel for the same list. Single-letter keys are ignored while a text field has focus, so typing a note never triggers a shortcut.
+
+### Global
+
+| Keys | Action |
+|------|--------|
+| `1` `2` `3` or `Left` / `Right` | Switch between Records, Analysis and Report |
+| `n` or `+` | New reading |
+| `p` | Open the profile menu |
+| `[` / `]` | Previous / next profile |
+| `i` | Category information |
+| `?` | Show or hide this shortcut list |
+| `w` / `m` / `a` | Range 7 days / 30 days / all (Analysis and Report) |
+| `Esc` | Close the topmost layer, otherwise the panel |
+
+### Records
+
+| Keys | Action |
+|------|--------|
+| `j` / `k` or `Down` / `Up` | Select the next / previous reading |
+| `g` / `G` or `Home` / `End` | Select the first / last reading |
+| `PageUp` / `PageDown` | Move the selection by a page |
+| `Enter` or `e` | Edit the selected reading |
+| `x` or `Delete` | Delete the selected reading (asks first) |
+
+### Analysis, info and help
+
+| Keys | Action |
+|------|--------|
+| `j` / `k` or `Down` / `Up` | Scroll |
+| `PageUp` / `PageDown` | Scroll by a page |
+
+### Report
+
+| Keys | Action |
+|------|--------|
+| `e` | Export PDF |
+| `c` | Export CSV |
+| `o` | Open the last export |
+| `f` | Open the folder of the last export |
+
+### Profile menu
+
+| Keys | Action |
+|------|--------|
+| `j` / `k` or `Down` / `Up` | Move through the menu |
+| `Enter` | Select the highlighted profile or action |
+| `a` / `r` / `d` | Add / rename / delete profile |
+| `p` or `Esc` | Close the menu |
+
+### Reading form
+
+| Keys | Action |
+|------|--------|
+| `Tab` / `Shift+Tab` | Next / previous field |
+| `Up` / `Down` or `PageUp` / `PageDown` | Adjust SYS, DIA or pulse by 1 / 10 |
+| `Space` or `Enter` | Open a dropdown or press the focused button |
+| `Ctrl+Enter` or `Ctrl+S` | Save from any field |
+| `Esc` | Cancel |
+
+### Dialogs
+
+| Keys | Action |
+|------|--------|
+| `Enter` or `y` | Confirm (Left / Right picks the button Enter presses) |
+| `Esc` or `n` | Cancel a confirmation |
+| `Enter` / `Esc` | Save / cancel a profile name |
+
+Keyboard focus is always visible: the selected reading and the highlighted menu row get an accent border, and form fields and buttons show the focus ring.
 
 Toggle the panel from a keybinding or script:
 
 ```bash
 omarchy-shell shell toggle io.github.juancasanueva.tensio
+```
+
+To bind it in Omarchy, add a line like this to `~/.config/hypr/bindings.lua` (pick a key combination that is still free on your system); Tensio never edits that file itself:
+
+```lua
+o.bind("SUPER + CTRL + ALT + H", "Tensio", "omarchy-shell shell toggle io.github.juancasanueva.tensio")
 ```
 
 ## Privacy and files

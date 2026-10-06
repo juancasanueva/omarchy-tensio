@@ -8,6 +8,8 @@ Card {
     id: row
 
     property var reading: null
+    // Keyboard selection: drawn as an accent border.
+    property bool selected: false
     readonly property string categoryKey: reading ? Model.categoryOf(reading.sys, reading.dia) : 'normal'
     readonly property color categoryColor: Model.category(categoryKey).color
     readonly property color fg: Color.popups.text
@@ -17,7 +19,9 @@ Card {
     signal deleteRequested()
 
     implicitHeight: content.implicitHeight + Style.space(20)
-    color: hover.hovered ? Util.alpha(fg, 0.1) : Util.alpha(fg, 0.06)
+    color: hover.hovered || selected ? Util.alpha(fg, 0.1) : Util.alpha(fg, 0.06)
+    border.width: selected ? 2 : 1
+    border.color: selected ? Color.accent : Util.alpha(fg, 0.08)
 
     HoverHandler { id: hover }
 

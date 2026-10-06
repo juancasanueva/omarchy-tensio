@@ -13,6 +13,14 @@ Item {
 
     readonly property color muted: Util.alpha(Color.popups.text, 0.6)
 
+    // Keyboard scrolling (j / k, Up / Down, PageUp / PageDown).
+    function scrollBy(dy) {
+        var maxY = Math.max(0, flick.contentHeight - flick.height)
+        flick.contentY = Math.max(0, Math.min(maxY, flick.contentY + dy))
+    }
+    function scrollStep(direction) { scrollBy(direction * Style.space(48)) }
+    function scrollPage(direction) { scrollBy(direction * Math.max(Style.space(48), flick.height * 0.9)) }
+
     Flickable {
         id: flick
         anchors.fill: parent

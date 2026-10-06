@@ -3,7 +3,8 @@ import qs.Commons
 import qs.Ui
 import "../Model.js" as Model
 
-// Inline profile-name editor: label, text field, Save and Cancel.
+// Inline profile-name editor: label, text field, Save and Cancel. Enter and
+// Esc are routed by Panel.qml's key handler to submit() and canceled().
 Item {
     id: editor
 
@@ -57,7 +58,6 @@ Item {
                 maximumLength: Model.LIMITS.nameMax
                 placeholderText: 'Name'
                 foreground: Color.popups.text
-                onAccepted: editor.submit()
             }
             Button {
                 id: cancelButton

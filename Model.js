@@ -571,6 +571,159 @@ function exportFolder(path) {
     return path.slice(0, path.lastIndexOf('/'))
 }
 
+// ------------------------------------------------------------ keyboard
+//
+// keyAction() maps one key press to an action name for the panel. It is a
+// pure table so the keymap is unit-tested; Panel.qml computes the context
+// (the topmost open layer), normalizes the Qt event and dispatches the
+// returned action. '' means "not handled": the event then stays with the
+// focused control (SpinBox arrows, dropdown popups, text editing).
+//
+// context:     records | analysis | report | profileMenu | form | info |
+//              help | confirm | nameEditor | onboarding
+// key:         normalized key name ('Left', 'Return', 'Escape', 'Tab', ...)
+//              or '' for a printable key, which is then read from `text`
+// modifiers:   { ctrl, shift, alt }
+// textFocused: a text input has focus; only Escape, Tab / Shift+Tab,
+//              Return / Enter, Ctrl+Enter, Ctrl+S (and PageUp / PageDown in
+//              the reading form) are mapped, so typing is never stolen.
+
+var PAGE_CONTEXTS = ['records', 'analysis', 'report']
+
+var PAGE_TEXT = {
+    '1': 'tab1', '2': 'tab2', '3': 'tab3',
+    'n': 'newReading', '+': 'newReading',
+    'p': 'profileMenu', '[': 'profilePrev', ']': 'profileNext',
+    'i': 'info', '?': 'help'
+}
+var PAGE_KEYS = { 'Left': 'tabPrev', 'Right': 'tabNext' }
+var RANGE_TEXT = { 'w': 'range7d', 'm': 'range30d', 'a': 'rangeAll' }
+var SCROLL_TEXT = { 'j': 'scrollDown', 'k': 'scrollUp' }
+var SCROLL_KEYS = { 'Down': 'scrollDown', 'Up': 'scrollUp', 'PageDown': 'pageDown', 'PageUp': 'pageUp' }
+
+var CONTEXT_TEXT = {
+    records: { 'j': 'selectNext', 'k': 'selectPrev', 'g': 'selectFirst', 'G': 'selectLast', 'e': 'editSelected', 'x': 'deleteSelected' },
+    analysis: SCROLL_TEXT,
+    report: { 'e': 'exportPdf', 'c': 'exportCsv', 'o': 'openExport', 'f': 'openFolder' },
+    info: { 'j': 'scrollDown', 'k': 'scrollUp', 'i': 'info', '?': 'help' },
+    help: { 'j': 'scrollDown', 'k': 'scrollUp', '?': 'help' },
+    profileMenu: { 'j': 'menuNext', 'k': 'menuPrev', 'a': 'profileAdd', 'r': 'profileRename', 'd': 'profileDelete', 'p': 'profileMenu' },
+    confirm: { 'y': 'confirmYes', 'n': 'confirmNo' }
+}
+var CONTEXT_KEYS = {
+    records: {
+        'Down': 'selectNext', 'Up': 'selectPrev', 'Home': 'selectFirst', 'End': 'selectLast',
+        'PageUp': 'selectPageUp', 'PageDown': 'selectPageDown',
+        'Return': 'editSelected', 'Enter': 'editSelected', 'Delete': 'deleteSelected'
+    },
+    analysis: SCROLL_KEYS,
+    info: SCROLL_KEYS,
+    help: SCROLL_KEYS,
+    profileMenu: { 'Down': 'menuNext', 'Up': 'menuPrev', 'Return': 'menuActivate', 'Enter': 'menuActivate' },
+    form: { 'Return': 'formSave', 'Enter': 'formSave', 'PageUp': 'formPageUp', 'PageDown': 'formPageDown' },
+    confirm: {
+        'Return': 'confirmActivate', 'Enter': 'confirmActivate',
+        'Left': 'confirmToggle', 'Right': 'confirmToggle', 'Tab': 'confirmToggle', 'Backtab': 'confirmToggle'
+    },
+    nameEditor: { 'Return': 'nameSave', 'Enter': 'nameSave' },
+    onboarding: { 'Return': 'onboardingSave', 'Enter': 'onboardingSave' }
+}
+var SAVE_ACTIONS = { form: 'formSave', nameEditor: 'nameSave', onboarding: 'onboardingSave' }
+
+function lookup(table, name) {
+    return table && Object.prototype.hasOwnProperty.call(table, name) ? table[name] : ''
+}
+
+function keyAction(context, key, text, modifiers, textFocused) {
+    var ctx = typeof context === 'string' ? context : ''
+    var k = typeof key === 'string' ? key : ''
+    var t = typeof text === 'string' && text.length === 1 ? text : ''
+    var mods = modifiers && typeof modifiers === 'object' ? modifiers : {}
+    var focused = textFocused === true
+
+    if (k === 'Escape') return ctx === 'confirm' ? 'confirmNo' : 'escape'
+
+    // Save chords work from any field of an editor.
+    var save = lookup(SAVE_ACTIONS, ctx)
+    if (mods.ctrl && !mods.alt) {
+        if (save !== '' && (k === 'Return' || k === 'Enter' || (k === '' && (t === 's' || t === 'S')))) return save
+        return ''
+    }
+    if (mods.alt || mods.ctrl) return ''
+
+    if (k === 'Tab' || k === 'Backtab') {
+        if (ctx === 'form') return k === 'Backtab' || mods.shift ? 'formPrev' : 'formNext'
+        if (ctx === 'confirm') return 'confirmToggle'
+        return ''
+    }
+
+    if (focused) {
+        if (k === 'Return' || k === 'Enter') return save
+        if (ctx === 'form' && (k === 'PageUp' || k === 'PageDown')) return lookup(CONTEXT_KEYS.form, k)
+        return ''
+    }
+
+    if (k !== '') {
+        var byKey = lookup(CONTEXT_KEYS[ctx], k)
+        if (byKey !== '') return byKey
+        return PAGE_CONTEXTS.indexOf(ctx) >= 0 ? lookup(PAGE_KEYS, k) : ''
+    }
+    if (t === '') return ''
+
+    var byText = lookup(CONTEXT_TEXT[ctx], t)
+    if (byText !== '') return byText
+    if (PAGE_CONTEXTS.indexOf(ctx) < 0) return ''
+    if (ctx !== 'records') {
+        var range = lookup(RANGE_TEXT, t)
+        if (range !== '') return range
+    }
+    return lookup(PAGE_TEXT, t)
+}
+
+// Human-readable keymap, shared by the in-panel help overlay and the
+// README (tests/test_model.cjs checks that every row appears there). Keys
+// are space-separated tokens; '/' and 'or' are separators.
+var SHORTCUTS = [
+    { group: 'Global', keys: '1 2 3 or Left / Right', action: 'Switch between Records, Analysis and Report' },
+    { group: 'Global', keys: 'n or +', action: 'New reading' },
+    { group: 'Global', keys: 'p', action: 'Open the profile menu' },
+    { group: 'Global', keys: '[ / ]', action: 'Previous / next profile' },
+    { group: 'Global', keys: 'i', action: 'Category information' },
+    { group: 'Global', keys: '?', action: 'Show or hide this shortcut list' },
+    { group: 'Global', keys: 'w / m / a', action: 'Range 7 days / 30 days / all (Analysis and Report)' },
+    { group: 'Global', keys: 'Esc', action: 'Close the topmost layer, otherwise the panel' },
+    { group: 'Records', keys: 'j / k or Down / Up', action: 'Select the next / previous reading' },
+    { group: 'Records', keys: 'g / G or Home / End', action: 'Select the first / last reading' },
+    { group: 'Records', keys: 'PageUp / PageDown', action: 'Move the selection by a page' },
+    { group: 'Records', keys: 'Enter or e', action: 'Edit the selected reading' },
+    { group: 'Records', keys: 'x or Delete', action: 'Delete the selected reading (asks first)' },
+    { group: 'Analysis, info and help', keys: 'j / k or Down / Up', action: 'Scroll' },
+    { group: 'Analysis, info and help', keys: 'PageUp / PageDown', action: 'Scroll by a page' },
+    { group: 'Report', keys: 'e', action: 'Export PDF' },
+    { group: 'Report', keys: 'c', action: 'Export CSV' },
+    { group: 'Report', keys: 'o', action: 'Open the last export' },
+    { group: 'Report', keys: 'f', action: 'Open the folder of the last export' },
+    { group: 'Profile menu', keys: 'j / k or Down / Up', action: 'Move through the menu' },
+    { group: 'Profile menu', keys: 'Enter', action: 'Select the highlighted profile or action' },
+    { group: 'Profile menu', keys: 'a / r / d', action: 'Add / rename / delete profile' },
+    { group: 'Profile menu', keys: 'p or Esc', action: 'Close the menu' },
+    { group: 'Reading form', keys: 'Tab / Shift+Tab', action: 'Next / previous field' },
+    { group: 'Reading form', keys: 'Up / Down or PageUp / PageDown', action: 'Adjust SYS, DIA or pulse by 1 / 10' },
+    { group: 'Reading form', keys: 'Space or Enter', action: 'Open a dropdown or press the focused button' },
+    { group: 'Reading form', keys: 'Ctrl+Enter or Ctrl+S', action: 'Save from any field' },
+    { group: 'Reading form', keys: 'Esc', action: 'Cancel' },
+    { group: 'Dialogs', keys: 'Enter or y', action: 'Confirm (Left / Right picks the button Enter presses)' },
+    { group: 'Dialogs', keys: 'Esc or n', action: 'Cancel a confirmation' },
+    { group: 'Dialogs', keys: 'Enter / Esc', action: 'Save / cancel a profile name' }
+]
+
+function shortcutHelp() {
+    var out = []
+    for (var i = 0; i < SHORTCUTS.length; i++)
+        out.push({ group: SHORTCUTS[i].group, keys: SHORTCUTS[i].keys, action: SHORTCUTS[i].action })
+    return out
+}
+
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         SCHEMA_VERSION: SCHEMA_VERSION, LIMITS: LIMITS, FEELINGS: FEELINGS, BODIES: BODIES, ARMS: ARMS, RANGES: RANGES,
@@ -584,6 +737,7 @@ if (typeof module !== 'undefined' && module.exports) {
         plain: plain, csvRows: csvRows, chartSeries: chartSeries, thinLabels: thinLabels,
         initialColor: initialColor, profileInitial: profileInitial,
         lastReading: lastReading, readingLine: readingLine, downsample: downsample,
-        splitAt: splitAt, joinAt: joinAt, isExportPath: isExportPath, exportFolder: exportFolder
+        splitAt: splitAt, joinAt: joinAt, isExportPath: isExportPath, exportFolder: exportFolder,
+        keyAction: keyAction, SHORTCUTS: SHORTCUTS, shortcutHelp: shortcutHelp
     }
 }

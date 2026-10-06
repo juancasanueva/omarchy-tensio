@@ -18,6 +18,10 @@ Card {
     signal deleteRequested()
 
     readonly property var shownProfiles: (profiles || []).slice(0, Model.LIMITS.profiles)
+    // Keyboard cursor: profile rows first, then Add, Rename, Delete.
+    property int cursorIndex: -1
+    readonly property int actionBase: shownProfiles.length
+    readonly property int rowCount: shownProfiles.length + (activeId !== '' ? 3 : 1)
 
     color: Color.popups.background
     border.color: Util.alpha(Color.popups.text, 0.2)
@@ -33,11 +37,14 @@ Card {
         property string mark: ''
         property color textColor: Color.popups.text
         property bool enabledRow: true
+        property bool highlighted: false
         signal activated()
         width: menuColumn.width
         height: Style.space(30)
         radius: Style.space(6)
-        color: rowArea.containsMouse && enabledRow ? Util.alpha(Color.popups.text, 0.08) : 'transparent'
+        color: (rowArea.containsMouse && enabledRow) || highlighted ? Util.alpha(Color.popups.text, 0.08) : 'transparent'
+        border.width: highlighted ? 1 : 0
+        border.color: Color.accent
         opacity: enabledRow ? 1 : 0.45
 
         Text {
@@ -85,6 +92,8 @@ Card {
             model: menu.shownProfiles
             delegate: MenuRow {
                 required property var modelData
+                required property int index
+                highlighted: menu.cursorIndex === index
                 label: modelData.name
                 mark: modelData.id === menu.activeId ? '✓' : ''
                 onActivated: menu.profileSelected(modelData.id)
@@ -101,18 +110,21 @@ Card {
         MenuRow {
             label: 'Add profile'
             mark: '+'
+            highlighted: menu.cursorIndex === menu.actionBase
             enabledRow: menu.canEdit && menu.shownProfiles.length < Model.LIMITS.profiles
             onActivated: menu.addRequested()
         }
         MenuRow {
             visible: menu.activeId !== ''
             label: 'Rename ' + menu.activeName
+            highlighted: menu.cursorIndex === menu.actionBase + 1
             enabledRow: menu.canEdit
             onActivated: menu.renameRequested()
         }
         MenuRow {
             visible: menu.activeId !== ''
             label: 'Delete ' + menu.activeName
+            highlighted: menu.cursorIndex === menu.actionBase + 2
             textColor: Color.urgent
             enabledRow: menu.canEdit
             onActivated: menu.deleteRequested()

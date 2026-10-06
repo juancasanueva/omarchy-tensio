@@ -33,6 +33,48 @@ Item {
     }
     readonly property bool truncated: page.readings.length > page.maxRows
 
+    // Keyboard selection over the visible reading rows (headers excluded).
+    // rowEntries[i] is the list index of the i-th visible reading.
+    readonly property var rowEntries: {
+        var out = []
+        for (var i = 0; i < page.entries.length; i++)
+            if (!page.entries[i].header) out.push(i)
+        return out
+    }
+    property int selectedIndex: -1
+    readonly property var selectedReading: selectedIndex >= 0 && selectedIndex < rowEntries.length
+        ? page.entries[rowEntries[selectedIndex]].reading : null
+
+    // Keeps the selection inside the visible rows; selects the newest row
+    // when there was none.
+    function clampSelection() {
+        var n = page.rowEntries.length
+        if (n === 0) page.selectedIndex = -1
+        else page.selectedIndex = Math.max(0, Math.min(n - 1, page.selectedIndex))
+    }
+    function resetSelection() {
+        page.selectedIndex = page.rowEntries.length ? 0 : -1
+        list.positionViewAtBeginning()
+    }
+    function select(index) {
+        var n = page.rowEntries.length
+        if (n === 0) {
+            page.selectedIndex = -1
+            return
+        }
+        page.selectedIndex = Math.max(0, Math.min(n - 1, index))
+        list.positionViewAtIndex(page.rowEntries[page.selectedIndex], ListView.Contain)
+        // Keep the day header visible above the first reading of a day.
+        if (page.selectedIndex === 0) list.positionViewAtBeginning()
+    }
+    function moveSelection(delta) { page.select(page.selectedIndex < 0 ? 0 : page.selectedIndex + delta) }
+    function selectFirst() { page.select(0) }
+    function selectLast() { page.select(page.rowEntries.length - 1) }
+    // Rows that fit in the view, for PageUp / PageDown.
+    function pageRows() { return Math.max(1, Math.floor(list.height / Style.space(84))) }
+
+    onRowEntriesChanged: page.clampSelection()
+
     PlainLabel {
         anchors.centerIn: parent
         visible: page.readings.length === 0
@@ -72,6 +114,7 @@ Item {
         delegate: Item {
             id: entry
             required property var modelData
+            required property int index
             width: list.width
             height: modelData.header ? dayLabel.implicitHeight + Style.space(8) : rowCard.implicitHeight
 
@@ -91,6 +134,7 @@ Item {
                 visible: !entry.modelData.header
                 width: parent.width
                 reading: entry.modelData.reading
+                selected: page.selectedIndex >= 0 && page.rowEntries[page.selectedIndex] === entry.index
                 onEditRequested: if (page.canEdit) page.editRequested(entry.modelData.reading)
                 onDeleteRequested: if (page.canEdit) page.deleteRequested(entry.modelData.reading)
             }

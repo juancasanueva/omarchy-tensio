@@ -4,7 +4,10 @@ import qs.Ui
 import "../Model.js" as Model
 
 // Add / edit form for one reading. Created fresh by a Loader for every use,
-// so initial values come from `reading` (null for a new reading).
+// so initial values come from `reading` (null for a new reading). Return,
+// Ctrl+Enter and Ctrl+S reach Panel.qml's key handler, which calls submit();
+// the fields do not submit on `accepted` themselves, so a save never runs
+// twice for one key press.
 Item {
     id: form
 
@@ -44,6 +47,95 @@ Item {
         var input = numberField.field.contentItem
         var text = input && input.text !== undefined ? String(input.text).trim() : ''
         return text !== '' ? text : fallback
+    }
+
+    // ----------------------------------------------------------- keyboard
+    //
+    // Focus order: SYS, DIA, PULSE, Feeling, Body, Arm, Date, Time, Note,
+    // Cancel, Save. It matches the item order, so Qt's own Tab chain (used
+    // when a control handles Tab itself) walks the same sequence.
+
+    // The focusable trigger inside a host Dropdown.
+    function focusableIn(item) {
+        var kids = item ? item.children : []
+        for (var i = 0; i < kids.length; i++) {
+            if (kids[i].activeFocusOnTab) return kids[i]
+            var inner = form.focusableIn(kids[i])
+            if (inner) return inner
+        }
+        return null
+    }
+
+    function focusTargets() {
+        return [sysField.field, diaField.field, pulseField.field,
+            form.focusableIn(feelingDrop), form.focusableIn(bodyDrop), form.focusableIn(armDrop),
+            dateField, timeField, noteField, cancelButton, saveButton]
+    }
+
+    function focusedIndex() {
+        var targets = form.focusTargets()
+        for (var i = 0; i < targets.length; i++)
+            if (targets[i] && targets[i].activeFocus) return i
+        return -1
+    }
+
+    function focusAt(index) {
+        var target = form.focusTargets()[index]
+        if (target) target.forceActiveFocus(Qt.TabFocusReason)
+    }
+
+    function focusFirst() { form.focusAt(0) }
+
+    function focusNext(step) {
+        var count = form.focusTargets().length
+        var current = form.focusedIndex()
+        var next = current < 0 ? (step > 0 ? 0 : count - 1) : (current + step + count) % count
+        form.focusAt(next)
+    }
+
+    // The control that has keyboard focus, for the focus ring. Reading each
+    // target's activeFocus here makes the binding follow focus changes.
+    readonly property Item ringTarget: {
+        var targets = form.focusTargets()
+        for (var i = 0; i < targets.length; i++)
+            if (targets[i] && targets[i].activeFocus) return targets[i]
+        return null
+    }
+
+    // PageUp / PageDown on a number field: adjust by delta, clamped.
+    // Returns false when no number field has focus.
+    function stepFocused(delta) {
+        var index = form.focusedIndex()
+        var fields = [sysField, diaField, pulseField]
+        var names = ['sys', 'dia', 'pulse']
+        if (index < 0 || index > 2) return false
+        var numberField = fields[index]
+        var base = parseInt(form.typedValue(numberField, form[names[index]]), 10)
+        if (!isFinite(base)) base = numberField.field.value
+        var next = Math.max(numberField.from, Math.min(numberField.to, base + delta))
+        form[names[index]] = next
+        numberField.field.value = next
+        var input = numberField.field.contentItem
+        if (input && input.selectAll) input.selectAll()
+        return true
+    }
+
+    // Typing replaces a number or date when a field is entered by keyboard.
+    function selectOnFocus(input) {
+        if (input && input.activeFocus && input.selectAll) input.selectAll()
+    }
+
+    Connections {
+        target: sysField.field.contentItem
+        function onActiveFocusChanged() { form.selectOnFocus(sysField.field.contentItem) }
+    }
+    Connections {
+        target: diaField.field.contentItem
+        function onActiveFocusChanged() { form.selectOnFocus(diaField.field.contentItem) }
+    }
+    Connections {
+        target: pulseField.field.contentItem
+        function onActiveFocusChanged() { form.selectOnFocus(pulseField.field.contentItem) }
     }
 
     function submit() {
@@ -137,6 +229,7 @@ Item {
         Row {
             spacing: form.gap
             Dropdown {
+                id: feelingDrop
                 width: form.third
                 label: 'Feeling'
                 options: form.optionsFor(Model.FEELINGS)
@@ -144,6 +237,7 @@ Item {
                 onChanged: function (v) { form.feeling = v }
             }
             Dropdown {
+                id: bodyDrop
                 width: form.third
                 label: 'Body'
                 options: form.optionsFor(Model.BODIES)
@@ -151,6 +245,7 @@ Item {
                 onChanged: function (v) { form.body = v }
             }
             Dropdown {
+                id: armDrop
                 width: form.third
                 label: 'Arm'
                 options: form.optionsFor(Model.ARMS)
@@ -172,7 +267,7 @@ Item {
                     placeholderText: 'YYYY-MM-DD'
                     foreground: Color.popups.text
                     validator: RegularExpressionValidator { regularExpression: /[0-9-]{0,10}/ }
-                    onAccepted: form.submit()
+                    onActiveFocusChanged: form.selectOnFocus(dateField)
                 }
             }
             Column {
@@ -186,7 +281,7 @@ Item {
                     placeholderText: 'HH:MM'
                     foreground: Color.popups.text
                     validator: RegularExpressionValidator { regularExpression: /[0-9:]{0,5}/ }
-                    onAccepted: form.submit()
+                    onActiveFocusChanged: form.selectOnFocus(timeField)
                 }
             }
         }
@@ -202,7 +297,6 @@ Item {
                 maximumLength: Model.LIMITS.noteMax
                 placeholderText: 'Optional, up to ' + Model.LIMITS.noteMax + ' characters'
                 foreground: Color.popups.text
-                onAccepted: form.submit()
             }
         }
 
@@ -219,18 +313,42 @@ Item {
             anchors.right: parent.right
             spacing: Style.space(8)
             Button {
+                id: cancelButton
                 text: 'Cancel'
+                focusable: true
                 bordered: true
                 foreground: Color.popups.text
                 onClicked: form.canceled()
             }
             Button {
+                id: saveButton
                 text: form.editing ? 'Save changes' : 'Save'
+                focusable: true
                 bordered: true
                 selected: true
                 foreground: Color.popups.text
                 onClicked: form.submit()
             }
         }
+    }
+
+    // Accent ring around the focused control, so keyboard focus is always
+    // visible whatever the theme's own focus styling is.
+    Rectangle {
+        id: focusRing
+        readonly property real pad: 3
+        readonly property point origin: form.ringTarget && form.width > 0
+            ? form.ringTarget.mapToItem(form, 0, 0) : Qt.point(0, 0)
+        visible: form.ringTarget !== null
+        enabled: false
+        z: 50
+        x: origin.x - pad
+        y: origin.y - pad
+        width: form.ringTarget ? form.ringTarget.width + pad * 2 : 0
+        height: form.ringTarget ? form.ringTarget.height + pad * 2 : 0
+        radius: Style.cornerRadius + pad
+        color: 'transparent'
+        border.width: 2
+        border.color: Color.accent
     }
 }

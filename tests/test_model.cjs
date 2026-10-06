@@ -308,4 +308,202 @@ test('readingLine formats a compact reading summary', () => {
   assert.equal(M.readingLine(null), '')
 })
 
+// ------------------------------------------------------------ keyboard
+
+const fs = require('fs')
+// key: normalized Qt key name ('' for printable keys), text: typed character.
+function K(context, key, text, mods, textFocused) {
+  return M.keyAction(context, key, text || '', mods || {}, !!textFocused)
+}
+const CTRL = { ctrl: true }
+const SHIFT = { shift: true }
+const PAGES = ['records', 'analysis', 'report']
+
+test('keyAction: global page keys switch tabs, open layers and change profile', () => {
+  for (const ctx of PAGES) {
+    assert.equal(K(ctx, '', '1'), 'tab1')
+    assert.equal(K(ctx, '', '2'), 'tab2')
+    assert.equal(K(ctx, '', '3'), 'tab3')
+    assert.equal(K(ctx, 'Left'), 'tabPrev')
+    assert.equal(K(ctx, 'Right'), 'tabNext')
+    assert.equal(K(ctx, '', 'n'), 'newReading')
+    assert.equal(K(ctx, '', '+', SHIFT), 'newReading')
+    assert.equal(K(ctx, '', 'p'), 'profileMenu')
+    assert.equal(K(ctx, '', '['), 'profilePrev')
+    assert.equal(K(ctx, '', ']'), 'profileNext')
+    assert.equal(K(ctx, '', 'i'), 'info')
+    assert.equal(K(ctx, '', '?', SHIFT), 'help')
+    assert.equal(K(ctx, 'Escape'), 'escape')
+  }
+})
+
+test('keyAction: range keys apply on Analysis and Report only', () => {
+  for (const ctx of ['analysis', 'report']) {
+    assert.equal(K(ctx, '', 'w'), 'range7d')
+    assert.equal(K(ctx, '', 'm'), 'range30d')
+    assert.equal(K(ctx, '', 'a'), 'rangeAll')
+  }
+  assert.equal(K('records', '', 'w'), '')
+  assert.equal(K('records', '', 'm'), '')
+  assert.equal(K('records', '', 'a'), '')
+})
+
+test('keyAction: Records moves, edits and deletes the selected row', () => {
+  assert.equal(K('records', '', 'j'), 'selectNext')
+  assert.equal(K('records', 'Down'), 'selectNext')
+  assert.equal(K('records', '', 'k'), 'selectPrev')
+  assert.equal(K('records', 'Up'), 'selectPrev')
+  assert.equal(K('records', '', 'g'), 'selectFirst')
+  assert.equal(K('records', 'Home'), 'selectFirst')
+  assert.equal(K('records', '', 'G', SHIFT), 'selectLast')
+  assert.equal(K('records', 'End'), 'selectLast')
+  assert.equal(K('records', 'PageUp'), 'selectPageUp')
+  assert.equal(K('records', 'PageDown'), 'selectPageDown')
+  assert.equal(K('records', 'Return'), 'editSelected')
+  assert.equal(K('records', 'Enter'), 'editSelected')
+  assert.equal(K('records', '', 'e'), 'editSelected')
+  assert.equal(K('records', '', 'x'), 'deleteSelected')
+  assert.equal(K('records', 'Delete'), 'deleteSelected')
+})
+
+test('keyAction: Analysis, info and help scroll', () => {
+  for (const ctx of ['analysis', 'info', 'help']) {
+    assert.equal(K(ctx, '', 'j'), 'scrollDown')
+    assert.equal(K(ctx, 'Down'), 'scrollDown')
+    assert.equal(K(ctx, '', 'k'), 'scrollUp')
+    assert.equal(K(ctx, 'Up'), 'scrollUp')
+    assert.equal(K(ctx, 'PageDown'), 'pageDown')
+    assert.equal(K(ctx, 'PageUp'), 'pageUp')
+    assert.equal(K(ctx, 'Escape'), 'escape')
+  }
+  assert.equal(K('help', '', '?', SHIFT), 'help')
+  assert.equal(K('info', '', 'i'), 'info')
+  assert.equal(K('info', '', '?', SHIFT), 'help')
+  // Page keys do not leak into overlays.
+  assert.equal(K('help', '', 'n'), '')
+  assert.equal(K('info', '', '1'), '')
+})
+
+test('keyAction: Report exports and opens the last export', () => {
+  assert.equal(K('report', '', 'e'), 'exportPdf')
+  assert.equal(K('report', '', 'c'), 'exportCsv')
+  assert.equal(K('report', '', 'o'), 'openExport')
+  assert.equal(K('report', '', 'f'), 'openFolder')
+  assert.equal(K('analysis', '', 'e'), '')
+})
+
+test('keyAction: profile menu navigation and actions', () => {
+  assert.equal(K('profileMenu', '', 'j'), 'menuNext')
+  assert.equal(K('profileMenu', 'Down'), 'menuNext')
+  assert.equal(K('profileMenu', '', 'k'), 'menuPrev')
+  assert.equal(K('profileMenu', 'Up'), 'menuPrev')
+  assert.equal(K('profileMenu', 'Return'), 'menuActivate')
+  assert.equal(K('profileMenu', 'Enter'), 'menuActivate')
+  assert.equal(K('profileMenu', '', 'a'), 'profileAdd')
+  assert.equal(K('profileMenu', '', 'r'), 'profileRename')
+  assert.equal(K('profileMenu', '', 'd'), 'profileDelete')
+  assert.equal(K('profileMenu', 'Escape'), 'escape')
+  assert.equal(K('profileMenu', '', 'p'), 'profileMenu')
+  assert.equal(K('profileMenu', '', 'n'), '')
+})
+
+test('keyAction: reading form cycles focus, saves and cancels', () => {
+  assert.equal(K('form', 'Tab'), 'formNext')
+  assert.equal(K('form', 'Backtab', '', SHIFT), 'formPrev')
+  assert.equal(K('form', 'Tab', '', SHIFT), 'formPrev')
+  assert.equal(K('form', 'Return', '', CTRL), 'formSave')
+  assert.equal(K('form', 'Enter', '', CTRL), 'formSave')
+  assert.equal(K('form', '', 's', CTRL), 'formSave')
+  assert.equal(K('form', 'Return'), 'formSave')
+  assert.equal(K('form', 'PageUp'), 'formPageUp')
+  assert.equal(K('form', 'PageDown'), 'formPageDown')
+  assert.equal(K('form', 'Escape'), 'escape')
+  // Page shortcuts never fire while the form is open.
+  assert.equal(K('form', '', 'n'), '')
+  assert.equal(K('form', '', '1'), '')
+  assert.equal(K('form', '', 's'), '')
+})
+
+test('keyAction: confirm dialog, name editor and onboarding', () => {
+  assert.equal(K('confirm', 'Return'), 'confirmActivate')
+  assert.equal(K('confirm', 'Enter'), 'confirmActivate')
+  assert.equal(K('confirm', '', 'y'), 'confirmYes')
+  assert.equal(K('confirm', '', 'n'), 'confirmNo')
+  assert.equal(K('confirm', 'Escape'), 'confirmNo')
+  assert.equal(K('confirm', 'Left'), 'confirmToggle')
+  assert.equal(K('confirm', 'Right'), 'confirmToggle')
+  assert.equal(K('confirm', 'Tab'), 'confirmToggle')
+  assert.equal(K('confirm', '', 'x'), '')
+  assert.equal(K('nameEditor', 'Return', '', {}, true), 'nameSave')
+  assert.equal(K('nameEditor', '', 's', CTRL, true), 'nameSave')
+  assert.equal(K('nameEditor', 'Escape', '', {}, true), 'escape')
+  assert.equal(K('onboarding', 'Return', '', {}, true), 'onboardingSave')
+  assert.equal(K('onboarding', 'Escape', '', {}, true), 'escape')
+})
+
+test('keyAction: a focused text field suppresses single-key shortcuts', () => {
+  for (const ch of ['n', '+', 'p', '[', ']', 'i', '?', 'w', 'm', 'a', 'e', 'x', 'j', 'k', 'g', 'G', '1', '2', '3', 'y']) {
+    for (const ctx of PAGES.concat(['form', 'nameEditor', 'onboarding', 'profileMenu', 'confirm', 'help', 'info'])) {
+      assert.equal(K(ctx, '', ch, {}, true), '', ctx + ' ' + ch)
+    }
+  }
+  for (const key of ['Left', 'Right', 'Up', 'Down', 'Home', 'End', 'Delete', 'Space']) {
+    assert.equal(K('records', key, '', {}, true), '', key)
+    assert.equal(K('form', key, '', {}, true), '', key)
+  }
+  assert.equal(K('form', 'Escape', '', {}, true), 'escape')
+  assert.equal(K('form', 'Tab', '', {}, true), 'formNext')
+  assert.equal(K('form', 'Backtab', '', SHIFT, true), 'formPrev')
+  assert.equal(K('form', 'Return', '', {}, true), 'formSave')
+  assert.equal(K('form', 'Return', '', CTRL, true), 'formSave')
+  assert.equal(K('form', '', 's', CTRL, true), 'formSave')
+})
+
+test('keyAction: modifiers and unknown input are ignored', () => {
+  assert.equal(K('records', '', 'n', CTRL), '')
+  assert.equal(K('records', '', 'n', { alt: true }), '')
+  assert.equal(K('records', '', 's', CTRL), '')
+  assert.equal(K('nowhere', '', 'n'), '')
+  assert.equal(K('nowhere', 'Escape'), 'escape')
+  assert.equal(K('records', '', ''), '')
+  assert.equal(K('records', 'F13'), '')
+  assert.equal(M.keyAction(), '')
+  assert.equal(M.keyAction('records', null, null, null), '')
+})
+
+test('shortcutHelp lists grouped rows that the README documents verbatim', () => {
+  const rows = M.shortcutHelp()
+  assert.ok(Array.isArray(rows) && rows.length >= 20)
+  const groups = []
+  for (const row of rows) {
+    assert.equal(typeof row.group, 'string')
+    assert.equal(typeof row.keys, 'string')
+    assert.equal(typeof row.action, 'string')
+    assert.ok(row.group && row.keys && row.action)
+    assert.ok(!/[<>&]/.test(row.group + row.keys + row.action))
+    if (groups.indexOf(row.group) < 0) groups.push(row.group)
+  }
+  assert.deepEqual(groups, ['Global', 'Records', 'Analysis, info and help', 'Report', 'Profile menu', 'Reading form', 'Dialogs'])
+  // Rows of one group are contiguous so the overlay can render them in order.
+  let last = ''
+  const seen = []
+  for (const row of rows) {
+    if (row.group !== last) {
+      assert.ok(seen.indexOf(row.group) < 0, 'group split: ' + row.group)
+      seen.push(row.group)
+      last = row.group
+    }
+  }
+  // Returned rows are copies: mutating them never changes the table.
+  rows[0].keys = 'changed'
+  assert.notEqual(M.shortcutHelp()[0].keys, 'changed')
+  assert.deepEqual(M.SHORTCUTS.map(r => r.group + r.keys + r.action), M.shortcutHelp().map(r => r.group + r.keys + r.action))
+  const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8')
+  for (const group of groups) assert.ok(readme.includes('### ' + group), 'README group ' + group)
+  for (const row of M.shortcutHelp()) {
+    const line = '| ' + row.keys.split(' ').map(k => k === '/' || k === 'or' ? k : '`' + k + '`').join(' ') + ' | ' + row.action + ' |'
+    assert.ok(readme.includes(line), 'README row missing: ' + line)
+  }
+})
+
 console.log('ok ' + passed + ' test groups')

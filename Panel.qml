@@ -72,6 +72,8 @@ Panel {
     property string nameMode: ''           // '' | add | rename
     property string rangeKey: '7d'
     property var pendingConfirm: null
+    property bool helpOpen: false
+    property int menuIndex: -1             // keyboard cursor in the profile menu
     property bool exporting: false
     property string exportPath: ''
     property string exportError: ''
@@ -305,6 +307,15 @@ Panel {
 
     // ------------------------------------------------------- navigation
 
+    function cycleProfile(step) {
+        var list = root.profiles
+        if (list.length < 2) return
+        var current = 0
+        for (var i = 0; i < list.length; i++)
+            if (list[i].id === root.activeId) current = i
+        root.selectProfile(list[(current + step + list.length) % list.length].id)
+    }
+
     function openForm(reading) {
         if (!root.canSave || !root.activeId) return
         root.menuOpen = false
@@ -336,7 +347,9 @@ Panel {
         root.pendingConfirm = { kind: kind, id: id }
         confirm.message = Model.plain(message, 180)
         confirm.confirmText = confirmText
-        confirm.selectedIndex = 0
+        // Enter presses the highlighted button; it starts on the confirm
+        // action so Enter confirms, as documented. Left / Right switch.
+        confirm.selectedIndex = 1
         confirm.opened = true
     }
 
@@ -363,19 +376,257 @@ Panel {
         else if (pending.kind === 'profile') root.deleteProfile(pending.id)
     }
 
+    function toggleInfo() {
+        root.menuOpen = false
+        root.view = root.view === 'info' ? 'pages' : 'info'
+        if (root.view !== 'info') body.forceActiveFocus()
+    }
+
+    function closeInfo() {
+        root.view = 'pages'
+        body.forceActiveFocus()
+    }
+
+    function toggleHelp() {
+        root.helpOpen = !root.helpOpen
+        if (root.helpOpen) shortcutHelp.resetScroll()
+        body.forceActiveFocus()
+    }
+
+    function setRange(key) {
+        if (Model.RANGES.indexOf(key) < 0) return
+        if (key !== root.rangeKey) {
+            root.exportPath = ''
+            root.exportError = ''
+        }
+        root.rangeKey = key
+    }
+
+    // Closes the topmost layer: help, info, name editor, profile menu, form;
+    // with nothing open, the panel itself. The confirm dialog is handled
+    // before this (Esc cancels it).
     function handleEscape() {
-        if (root.menuOpen) root.menuOpen = false
-        else if (root.view === 'form') root.closeForm()
-        else if (root.view === 'info') root.view = 'pages'
+        if (root.helpOpen) root.toggleHelp()
+        else if (root.view === 'info') root.closeInfo()
         else if (root.nameMode !== '') root.endNameEdit()
+        else if (root.menuOpen) root.menuOpen = false
+        else if (root.view === 'form') root.closeForm()
         else root.close()
     }
+
+    // ---------------------------------------------------------- keyboard
+    //
+    // One handler for the whole panel: the body's Keys.onPressed computes
+    // the context (topmost layer first), normalizes the event and asks
+    // Model.keyAction() for an action. The event is accepted only when an
+    // action ran, so focused host controls (SpinBox arrows, dropdown
+    // popups, text editing, focused buttons) keep every other key.
+
+    function keyContext() {
+        if (confirm.opened) return 'confirm'
+        if (root.helpOpen) return 'help'
+        if (root.view === 'info') return 'info'
+        if (root.nameMode !== '') return 'nameEditor'
+        if (root.menuOpen) return 'profileMenu'
+        if (root.view === 'form') return 'form'
+        if (onboarding.visible) return 'onboarding'
+        if (!root.hasProfiles) return 'none'
+        return ['records', 'analysis', 'report'][root.tab] || 'records'
+    }
+
+    function keyName(event) {
+        switch (event.key) {
+        case Qt.Key_Left: return 'Left'
+        case Qt.Key_Right: return 'Right'
+        case Qt.Key_Up: return 'Up'
+        case Qt.Key_Down: return 'Down'
+        case Qt.Key_Home: return 'Home'
+        case Qt.Key_End: return 'End'
+        case Qt.Key_PageUp: return 'PageUp'
+        case Qt.Key_PageDown: return 'PageDown'
+        case Qt.Key_Return: return 'Return'
+        case Qt.Key_Enter: return 'Enter'
+        case Qt.Key_Escape: return 'Escape'
+        case Qt.Key_Delete: return 'Delete'
+        case Qt.Key_Tab: return 'Tab'
+        case Qt.Key_Backtab: return 'Backtab'
+        case Qt.Key_Space: return 'Space'
+        }
+        // With Ctrl held, event.text is a control character; use the key.
+        if ((event.modifiers & Qt.ControlModifier) && event.key >= Qt.Key_A && event.key <= Qt.Key_Z) return ''
+        var text = String(event.text || '')
+        return text.length === 1 && text.charCodeAt(0) >= 0x20 && text.charCodeAt(0) !== 0x7f ? '' : 'Other'
+    }
+
+    function keyText(event) {
+        if ((event.modifiers & Qt.ControlModifier) && event.key >= Qt.Key_A && event.key <= Qt.Key_Z)
+            return String.fromCharCode(event.key).toLowerCase()
+        return String(event.text || '')
+    }
+
+    // A text input (TextField, the SpinBox editor, a TextEdit) has focus.
+    function textFocused() {
+        var item = body.Window.activeFocusItem
+        return !!item && item.cursorPosition !== undefined && item.readOnly === false
+    }
+
+    function handleKey(event) {
+        var mods = {
+            ctrl: (event.modifiers & Qt.ControlModifier) !== 0,
+            shift: (event.modifiers & Qt.ShiftModifier) !== 0,
+            alt: (event.modifiers & Qt.AltModifier) !== 0
+        }
+        var action = Model.keyAction(root.keyContext(), root.keyName(event), root.keyText(event), mods, root.textFocused())
+        return action !== '' && root.runAction(action)
+    }
+
+    function scrollTarget() {
+        if (root.helpOpen) return shortcutHelp
+        if (root.view === 'info') return infoView
+        return analysisPage
+    }
+
+    function activateMenuRow(index) {
+        var count = root.profiles.length
+        if (index >= 0 && index < count) {
+            root.selectProfile(root.profiles[index].id)
+            return true
+        }
+        if (index === count) return root.menuAdd()
+        if (index === count + 1 && root.activeId) return root.menuRename()
+        if (index === count + 2 && root.activeId) return root.menuDelete()
+        return false
+    }
+
+    function menuAdd() {
+        if (!root.canSave || root.profiles.length >= Model.LIMITS.profiles) return false
+        root.startNameEdit('add')
+        return true
+    }
+
+    function menuRename() {
+        if (!root.canSave || !root.activeId) return false
+        root.startNameEdit('rename')
+        return true
+    }
+
+    function menuDelete() {
+        if (!root.canSave || !root.activeId) return false
+        root.confirmDeleteProfile()
+        return true
+    }
+
+    // Runs one Model.keyAction() action; returns false when it did nothing.
+    function runAction(action) {
+        var form = formLoader.item
+        switch (action) {
+        case 'escape': root.handleEscape(); return true
+        case 'tab1': root.tab = 0; return true
+        case 'tab2': root.tab = 1; return true
+        case 'tab3': root.tab = 2; return true
+        case 'tabPrev': root.tab = Math.max(0, root.tab - 1); return true
+        case 'tabNext': root.tab = Math.min(root.tabs.length - 1, root.tab + 1); return true
+        case 'newReading':
+            if (!root.canSave || !root.activeId) return false
+            root.openForm(null)
+            return true
+        case 'profileMenu':
+            if (!root.loaded) return false
+            root.menuOpen = !root.menuOpen
+            return true
+        case 'profilePrev': root.cycleProfile(-1); return true
+        case 'profileNext': root.cycleProfile(1); return true
+        case 'info': root.toggleInfo(); return true
+        case 'help': root.toggleHelp(); return true
+        case 'range7d': root.setRange('7d'); return true
+        case 'range30d': root.setRange('30d'); return true
+        case 'rangeAll': root.setRange('all'); return true
+        case 'selectNext': recordsPage.moveSelection(1); return true
+        case 'selectPrev': recordsPage.moveSelection(-1); return true
+        case 'selectFirst': recordsPage.selectFirst(); return true
+        case 'selectLast': recordsPage.selectLast(); return true
+        case 'selectPageUp': recordsPage.moveSelection(-recordsPage.pageRows()); return true
+        case 'selectPageDown': recordsPage.moveSelection(recordsPage.pageRows()); return true
+        case 'editSelected':
+            if (!recordsPage.selectedReading || !root.canSave) return false
+            root.openForm(recordsPage.selectedReading)
+            return true
+        case 'deleteSelected':
+            if (!recordsPage.selectedReading || !root.canSave) return false
+            root.confirmDeleteReading(recordsPage.selectedReading)
+            return true
+        case 'scrollDown': root.scrollTarget().scrollStep(1); return true
+        case 'scrollUp': root.scrollTarget().scrollStep(-1); return true
+        case 'pageDown': root.scrollTarget().scrollPage(1); return true
+        case 'pageUp': root.scrollTarget().scrollPage(-1); return true
+        case 'exportPdf':
+        case 'exportCsv':
+            if (root.exporting || !root.canSave) return false
+            root.runExport(action === 'exportPdf' ? 'pdf' : 'csv')
+            return true
+        case 'openExport':
+            if (root.exportPath === '' || root.exporting) return false
+            root.openExport(root.exportPath)
+            return true
+        case 'openFolder':
+            if (root.exportPath === '' || root.exporting) return false
+            root.openExportFolder(root.exportPath)
+            return true
+        case 'menuNext':
+        case 'menuPrev':
+            var rows = profileMenu.rowCount
+            if (rows < 1) return false
+            var step = action === 'menuNext' ? 1 : -1
+            root.menuIndex = root.menuIndex < 0 ? 0 : (root.menuIndex + step + rows) % rows
+            return true
+        case 'menuActivate': return root.activateMenuRow(root.menuIndex)
+        case 'profileAdd': return root.menuAdd()
+        case 'profileRename': return root.menuRename()
+        case 'profileDelete': return root.menuDelete()
+        case 'formNext':
+            if (!form) return false
+            form.focusNext(1)
+            return true
+        case 'formPrev':
+            if (!form) return false
+            form.focusNext(-1)
+            return true
+        case 'formSave':
+            if (!form) return false
+            form.submit()
+            return true
+        case 'formPageUp': return !!form && form.stepFocused(10)
+        case 'formPageDown': return !!form && form.stepFocused(-10)
+        case 'confirmActivate': root.resolveConfirm(confirm.selectedIndex === 1); return true
+        case 'confirmYes': root.resolveConfirm(true); return true
+        case 'confirmNo': root.resolveConfirm(false); return true
+        case 'confirmToggle': confirm.selectedIndex = confirm.selectedIndex === 0 ? 1 : 0; return true
+        case 'nameSave': nameEditor.submit(); return true
+        case 'onboardingSave': onboardingEditor.submit(); return true
+        }
+        return false
+    }
+
+    onMenuOpenChanged: {
+        if (root.menuOpen) {
+            var index = 0
+            for (var i = 0; i < root.profiles.length; i++)
+                if (root.profiles[i].id === root.activeId) index = i
+            root.menuIndex = index
+        } else {
+            root.menuIndex = -1
+            if (root.nameMode === '' && root.view !== 'form') body.forceActiveFocus()
+        }
+    }
+
+    onActiveIdChanged: recordsPage.resetSelection()
 
     onOpenedChanged: {
         if (opened) {
             root.reload()
         } else {
             root.menuOpen = false
+            root.helpOpen = false
             if (confirm.opened) root.resolveConfirm(false)
         }
     }
@@ -472,24 +723,12 @@ Panel {
             readonly property real pageHeight: Math.max(Style.space(220), Math.min(Style.space(520), available - chromeHeight))
 
             Keys.onPressed: function (event) {
-                if (confirm.opened) {
-                    if (confirm.handleKey(event)) event.accepted = true
-                    return
-                }
-                if (event.key === Qt.Key_Escape) {
-                    root.handleEscape()
-                    event.accepted = true
-                    return
-                }
-                if (root.view !== 'pages' || root.nameMode !== '' || root.menuOpen || !root.hasProfiles) return
-                if (event.key === Qt.Key_Left) {
-                    root.tab = Math.max(0, root.tab - 1)
-                    event.accepted = true
-                } else if (event.key === Qt.Key_Right) {
-                    root.tab = Math.min(root.tabs.length - 1, root.tab + 1)
-                    event.accepted = true
-                }
+                if (root.handleKey(event)) event.accepted = true
             }
+
+            // During onboarding the name field takes focus whenever the
+            // panel body would, so the first profile can be typed at once.
+            onActiveFocusChanged: if (activeFocus && onboarding.visible) Qt.callLater(onboardingEditor.focusField)
 
             Column {
                 id: mainColumn
@@ -503,10 +742,7 @@ Panel {
                     lastReading: root.lastReading
                     menuOpen: root.menuOpen
                     onMenuRequested: if (root.loaded) root.menuOpen = !root.menuOpen
-                    onInfoRequested: {
-                        root.menuOpen = false
-                        root.view = root.view === 'info' ? 'pages' : 'info'
-                    }
+                    onInfoRequested: root.toggleInfo()
                 }
 
                 NameEditor {
@@ -586,6 +822,7 @@ Panel {
                         id: onboarding
                         visible: root.loaded && !root.loadFailed && !root.hasProfiles && root.view === 'pages'
                         anchors.centerIn: parent
+                        onVisibleChanged: if (visible) Qt.callLater(onboardingEditor.focusField)
                         width: Math.min(parent.width, Style.space(420))
                         height: onboardingColumn.implicitHeight + Style.space(32)
 
@@ -617,6 +854,7 @@ Panel {
                     }
 
                     RecordsPage {
+                        id: recordsPage
                         anchors.fill: parent
                         visible: root.hasProfiles && root.view === 'pages' && root.tab === 0
                         readings: root.profileReadings
@@ -627,11 +865,12 @@ Panel {
                     }
 
                     AnalysisPage {
+                        id: analysisPage
                         anchors.fill: parent
                         visible: root.hasProfiles && root.view === 'pages' && root.tab === 1
                         readings: root.rangeReadings
                         rangeKey: root.rangeKey
-                        onRangeSelected: function (key) { root.rangeKey = key }
+                        onRangeSelected: function (key) { root.setRange(key) }
                     }
 
                     ReportPage {
@@ -644,20 +883,17 @@ Panel {
                         canExport: root.loaded && !root.loadFailed
                         exportPath: root.exportPath
                         exportError: root.exportError
-                        onRangeSelected: function (key) {
-                            root.rangeKey = key
-                            root.exportPath = ''
-                            root.exportError = ''
-                        }
+                        onRangeSelected: function (key) { root.setRange(key) }
                         onExportRequested: function (format) { root.runExport(format) }
                         onOpenRequested: function (path) { root.openExport(path) }
                         onOpenFolderRequested: function (path) { root.openExportFolder(path) }
                     }
 
                     InfoView {
+                        id: infoView
                         anchors.fill: parent
                         visible: root.view === 'info'
-                        onCloseRequested: root.view = 'pages'
+                        onCloseRequested: root.closeInfo()
                     }
 
                     // The form is created fresh for each add / edit so every
@@ -676,6 +912,10 @@ Panel {
                             width: formFlick.width
                             active: root.view === 'form'
                             sourceComponent: readingFormComponent
+                            // Keyboard entry starts on SYS.
+                            onLoaded: Qt.callLater(function () {
+                                if (formLoader.item) formLoader.item.focusFirst()
+                            })
                         }
                     }
 
@@ -708,7 +948,7 @@ Panel {
                             required property string modelData
                             required property int index
                             readonly property bool selected: root.tab === index
-                            width: tabBar.width / root.tabs.length
+                            width: (tabBar.width - helpHint.width) / root.tabs.length
                             height: tabBar.height
 
                             Rectangle {
@@ -730,10 +970,32 @@ Panel {
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
                                     root.menuOpen = false
-                                    if (root.view === 'info') root.view = 'pages'
+                                    if (root.view === 'info') root.closeInfo()
                                     if (root.view === 'pages') root.tab = tabItem.index
                                 }
                             }
+                        }
+                    }
+
+                    // Shortcut hint; `?` toggles the same overlay.
+                    Item {
+                        id: helpHint
+                        width: hintLabel.implicitWidth + Style.space(16)
+                        height: tabBar.height
+
+                        PlainLabel {
+                            id: hintLabel
+                            anchors.centerIn: parent
+                            text: '? Shortcuts'
+                            color: hintArea.containsMouse ? Color.accent : body.muted
+                            font.pixelSize: Style.font.caption
+                        }
+                        MouseArea {
+                            id: hintArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.toggleHelp()
                         }
                     }
                 }
@@ -748,7 +1010,9 @@ Panel {
             }
 
             ProfileMenu {
+                id: profileMenu
                 z: 11
+                cursorIndex: root.menuIndex
                 visible: root.menuOpen
                 x: Style.space(50)
                 y: header.y + header.height + Style.space(4)
@@ -761,6 +1025,14 @@ Panel {
                 onAddRequested: root.startNameEdit('add')
                 onRenameRequested: root.startNameEdit('rename')
                 onDeleteRequested: root.confirmDeleteProfile()
+            }
+
+            ShortcutHelp {
+                id: shortcutHelp
+                anchors.fill: parent
+                z: 15
+                visible: root.helpOpen
+                onCloseRequested: root.toggleHelp()
             }
 
             ConfirmDialog {
