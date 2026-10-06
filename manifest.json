@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.juancasanueva.tensio",
+  "name": "Tensio",
+  "version": "0.1.0",
+  "author": "Juan Casanueva",
+  "license": "MIT",
+  "homepage": "https://github.com/juancasanueva/omarchy-tensio",
+  "description": "Blood-pressure log for several people: readings with AHA categories, 7/30-day analysis charts, and PDF/CSV reports. Stores everything locally, no network access.",
+  "keywords": ["health", "blood pressure", "hypertension", "log", "report"],
+  "kinds": ["bar-widget"],
+  "entryPoints": {"barWidget": "Panel.qml"},
+  "barWidget": {
+    "displayName": "Tensio",
+    "description": "Last blood-pressure reading in the bar; click to log readings, review analysis and export reports.",
+    "category": "Health",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

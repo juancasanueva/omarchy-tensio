@@ -1,0 +1,9 @@
+# Development-only material; never part of the installable plugin tree
+.atl/
+odd/
+screenshots/
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+*.swp
