@@ -1,6 +1,6 @@
 # Tensio for Omarchy
 
-A blood-pressure log in your Omarchy bar. Tensio is a desktop port of the Tensio iOS app: log readings for several people, see each reading's American Heart Association (AHA) category, review trends, and export PDF or CSV reports. Everything stays on your machine; the plugin makes no network requests.
+A blood-pressure log in your Omarchy bar. Log readings for several people, see each reading's American Heart Association (AHA) category, review trends, and export PDF or CSV reports. Everything stays on your machine; the plugin makes no network requests.
 
 ![Tensio panel: Records, Analysis and Reports tabs](docs/tensio-tabs.png)
 
