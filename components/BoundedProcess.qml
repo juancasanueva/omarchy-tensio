@@ -18,7 +18,10 @@ import Quickshell.Io
 //   - a running process is killed when the component is destroyed.
 //
 // finished(code, out, err) fires exactly once per run. A process that was
-// stopped for overflow or timeout reports code -1 and an explanatory err.
+// stopped for overflow or timeout, or that could not be started at all,
+// reports code -1 and an explanatory err. A queued run is started before
+// finished fires, so `busy` (and `hasPending` before that) already reflects
+// it inside a finished handler.
 Item {
     id: root
     visible: false
@@ -29,7 +32,10 @@ Item {
     property int maxErrBytes: 4096
     property int timeoutMs: 10000
     property bool queueWhenBusy: true
-    readonly property bool busy: proc.running || finishing
+    // True from start until finished has been emitted, including a start
+    // that never reached the running state.
+    readonly property bool busy: _active
+    readonly property bool hasPending: _pending !== null
 
     signal finished(int code, string out, string err)
 
@@ -41,7 +47,9 @@ Item {
     property int _outBytes: 0
     property int _errBytes: 0
     property string _failure: ''
-    property bool finishing: false
+    property bool _active: false
+    property bool _started: false
+    property int _runId: 0
 
     // Environment handed to the helper: HOME and the XDG locations it reads,
     // a fixed PATH and a UTF-8 locale. Unset variables are left out.
@@ -90,6 +98,9 @@ Item {
         root._failure = ''
         root._hasInput = input !== null
         root._input = input !== null ? input : ''
+        root._active = true
+        root._started = false
+        root._runId += 1
         proc.environment = root.childEnvironment()
         proc.stdinEnabled = root._hasInput
         proc.command = argv
@@ -103,6 +114,9 @@ Item {
         if (proc.running) {
             proc.signal(15)
             killTimer.restart()
+        } else {
+            // Never started (or already gone): no exited signal will come.
+            root._report(-1, root._runId)
         }
     }
 
@@ -133,12 +147,28 @@ Item {
         if (status !== 0 && root._failure === '') root._failure = 'Helper stopped unexpectedly.'
         deadline.stop()
         killTimer.stop()
-        root.finishing = true
         // Let any chunk still queued on the event loop arrive before reporting.
-        Qt.callLater(root._report, code)
+        Qt.callLater(root._report, code, root._runId)
     }
 
-    function _report(code) {
+    // A start that did not reach the running state (missing interpreter,
+    // exec failure) emits no exited signal; report it here instead.
+    function _onRunningChanged() {
+        if (proc.running) {
+            root._started = true
+        } else if (root._active && !root._started) {
+            if (root._failure === '') root._failure = 'Helper could not be started.'
+            deadline.stop()
+            Qt.callLater(root._report, -1, root._runId)
+        }
+    }
+
+    // Reports run `runId` once; stale or repeated calls are ignored.
+    function _report(code, runId) {
+        if (!root._active || runId !== root._runId) return
+        root._active = false
+        deadline.stop()
+        killTimer.stop()
         var failed = root._failure !== ''
         var out = failed ? '' : root._out
         var err = failed ? root._failure : root._err
@@ -146,13 +176,13 @@ Item {
         root._out = ''
         root._err = ''
         root._input = ''
-        root.finishing = false
-        root.finished(result, out, err)
-        if (root._pending && !root.busy) {
+        // Start the queued run first so handlers of finished see it as busy.
+        if (root._pending) {
             var next = root._pending
             root._pending = null
             root._start(next.argv, next.input)
         }
+        root.finished(result, out, err)
     }
 
     Process {
@@ -174,6 +204,7 @@ Item {
                 proc.stdinEnabled = false
             }
         }
+        onRunningChanged: root._onRunningChanged()
         onExited: function (exitCode, exitStatus) { root._onExited(exitCode, exitStatus) }
     }
 

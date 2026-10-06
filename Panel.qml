@@ -165,13 +165,14 @@ Panel {
     function onSaveFinished(code, out, err) {
         if (code !== 0) {
             root.saveError = 'Could not save: ' + root.firstLine(err, 'the state helper failed.')
-            // Show what is really on disk, unless a newer save is already queued.
-            Qt.callLater(function () { if (!saveProc.busy) root.reload() })
-            return
+            // Show what is really on disk once the last queued save has landed.
+            root.reloadAfterSave = true
         }
-        if (root.reloadAfterSave && !saveProc.busy) {
+        // A queued save is already running here (busy), so the reload stays
+        // deferred until the last save finishes.
+        if (root.reloadAfterSave && !saveProc.busy && !saveProc.hasPending) {
             root.reloadAfterSave = false
-            root.reload()
+            Qt.callLater(root.reload)
         }
     }
 
